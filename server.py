@@ -11,6 +11,7 @@ from flask import Flask, request, send_from_directory, render_template, redirect
 from werkzeug.utils import secure_filename
 from typing import List, Dict, Tuple, Optional
 from vecsim import SciKitIndex, RedisIndex
+import clip
 
 __dir__ = Path(__file__).absolute().parent
 upload_dir = __dir__ / "upload"
@@ -51,12 +52,16 @@ def allowed_file(filename):
 def embed_image(image_path):
     # random 512 dim vector
     # TODO: implement
-    return np.random.rand(512)
+    model, preprocess = clip.load()
+    image_input = preprocess(image_path)
+    image_features = model.encode_image(image_input).float()
+    return image_features
 
 def embed_text(text):
-    # random 512 dim vector
-    # TODO: implement
-    return np.random.rand(512)
+    model, preprocess = clip.load()
+    text_tokens = clip.tokenize(text)
+    text_features = model.encode_text(text_tokens).float()
+    return text_features
 
 @app.route('/imgsearch', methods=['POST','GET'])
 def imgsearch():
@@ -121,22 +126,18 @@ def page_not_found(e):
 if __name__ == "__main__":
     print("Loading data...")
     SAMPLE_SIZE = 2000
-    # TODO:
-    # with (data_dir/"clip_ids.json").open('r') as f:
-    #    embedding_ids = json.load(f)
+    with (data_dir/"clip_ids.json").open('r') as f:
+        embedding_ids = json.load(f)
     df = pd.read_parquet(data_dir/"product_images.parquet")  
     df=df[df["primary_image"].str.endswith(".jpg")|df["primary_image"].str.endswith(".png")].rename(columns={"asin":"id"})
-    # TODO: remove this line and read the proper ids
-    embedding_ids = list(df["id"].sample(SAMPLE_SIZE))
+    embedding_ids = list(df["id"].isin(embedding_ids))
     df["title"]=df["title"].fillna("")
     df["has_emb"]=df["id"].isin(embedding_ids)
     df=df[df["has_emb"]]
 
     print("Indexing...")
     sim = SciKitIndex("cosine",512)
-    # TODO:
-    # item_embedding = np.load(data_dir/"clip_emb.npy")
-    item_embedding = np.random.random((SAMPLE_SIZE,512))
+    item_embedding = np.load(data_dir/"clip_emb.npy")
     sim.add_items(item_embedding, embedding_ids)
     sim.init()
     
